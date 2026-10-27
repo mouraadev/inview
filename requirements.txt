@@ -1,0 +1,6 @@
+pdfplumber>=0.11,<0.12
+streamlit>=1.40,<2
+PyMySQL>=1.1,<2
+cryptography>=43
+pytest>=8,<10
+

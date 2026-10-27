@@ -1,0 +1,10 @@
+.venv/
+.env
+.env/
+__pycache__/
+.pytest_cache/
+.streamlit/secrets.toml
+data/
+*.pdf
+aurora_extraido.txt
+
