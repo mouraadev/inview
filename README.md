@@ -1,5 +1,86 @@
 # Inview
 
+## Dashboard financeiro — interface principal
+
+O Inview agora reúne saldo disponível, previsão de saldo no fim do mês,
+entradas, saídas, contas, categorias e compromissos mensais. A importação de
+faturas PDF é uma função dentro desse planejamento.
+
+Para abrir localmente, no PowerShell na pasta do projeto:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe dashboard.py
+```
+
+Abra **http://127.0.0.1:8000**. Para parar, pressione Ctrl+C no terminal.
+Não é necessário iniciar o Streamlit para usar o dashboard.
+
+Clique em **Meu espaço → Meus dados** para começar seu cadastro pessoal sem
+dados fictícios. Esse espaço usa `data/dashboard-local.json`, separado da demo,
+e funciona sem MySQL. A escolha fica lembrada neste navegador. Nesse mesmo menu
+estão a **Lixeira** (restauração) e **Baixar cópia dos dados** (JSON com documentos).
+Para iniciar diretamente nesse modo, defina `$env:INVIEW_MODO = 'local'`.
+
+Lançamentos, contas e recorrências possuem **Editar** e **Excluir**. Exclusões
+vão para a lixeira e recalculam os saldos; PDFs originais são preservados.
+Uma ocorrência recorrente pode ser corrigida ou excluída individualmente sem
+alterar os outros meses. Editar a regra mensal altera as ocorrências não
+confirmadas; meses já confirmados não são duplicados ao mudar o dia da regra.
+Para desfazer uma confirmação, edite o lançamento e mude a situação para Previsto.
+A moeda de uma conta não pode ser trocada e uma conta com movimentos ativos não
+pode ser excluída. Pendências antigas aparecem em Planejamento e Lançamentos.
+
+Como ainda não há MySQL instalado, o modo padrão é **demonstração**, claramente
+identificado na tela. Salário, aluguel e assinaturas têm valores fictícios.
+As alterações ficam em `data/dashboard-demo.json`, ignorado pelo Git. Este modo
+serve para experimentar; não representa seus dados bancários e não se conecta
+a bancos. Use apenas uma instância do servidor local por arquivo de dados.
+
+- **Novo lançamento:** registre uma entrada ou saída, prevista ou realizada.
+- **Planejamento:** cadastre recorrências mensais, valor, conta, categoria,
+  primeiro mês e dia. Dias 29–31 se ajustam ao último dia de meses menores.
+  Pausar remove as ocorrências ainda não realizadas da projeção; pagamentos
+  confirmados são preservados. Reativar volta a gerar os meses desde o início.
+- **Saldo projetado:** saldo realizado mais entradas previstas menos saídas
+  previstas até o fim do mês escolhido. Atrasados são sinalizados e precisam
+  de confirmação; não são automaticamente deslocados para uma nova data.
+  Confirmar uma ocorrência registra a realização hoje, uma única vez.
+- **Documentos:** extraia e revise os campos da fatura, escolha uma conta da
+  mesma moeda e a data prevista. A confirmação cria um lançamento **previsto**,
+  preserva o PDF original e bloqueia reimportação do mesmo arquivo.
+- Filtros por mês, conta e moeda. BRL, USD e EUR nunca são somados entre si.
+
+Interface própria em HTML/CSS/JavaScript, com Flask no Python. O design segue
+tipografia de sistema, hierarquia clara, contraste verde/claro, navegação suave,
+foco de teclado e preferências de movimento reduzido. Não há serviços pagos.
+
+### Usar MySQL no dashboard
+
+Após instalar/configurar o servidor como explicado abaixo, defina MYSQL_HOST,
+MYSQL_PORT, MYSQL_DATABASE, MYSQL_USER e MYSQL_PASSWORD no mesmo terminal:
+
+```powershell
+$env:INVIEW_MODO = 'mysql'
+.\.venv\Scripts\python.exe dashboard.py --init-db
+.\.venv\Scripts\python.exe dashboard.py
+```
+
+O banco começa vazio, com uma conta principal. Dados fictícios não são migrados.
+Não há fallback silencioso quando a conexão MySQL falha. `financeiro.sql` cria
+tabelas `fin_*` separadas do importador antigo. Valores são DECIMAL(18,2), atributos
+são JSON; o protótipo serializa gravações com uma linha de controle transacional.
+O PDF é armazenado em base64 junto ao registro do documento. `financeiro.py`
+calcula valores com Decimal; `repositorio_financeiro.py` controla persistência.
+O modo MySQL do dashboard ainda precisa de validação com servidor real.
+
+Esta versão é local, para uma pessoa, sem login, integração bancária ou
+transferência entre contas. Recorrências são mensais e
+de valor fixo. Previsão é calculada pelos lançamentos cadastrados, sem estimativa
+automática de despesas variáveis. O servidor escuta apenas em 127.0.0.1.
+
+## Importador anterior — preservado
+
 Aplicação local em Python para extrair sugestões de campos de faturas PDF,
 conferir e corrigir os dados no Streamlit e confirmar registros no MySQL.
 Não depende de templates por empresa. As regras reconhecem rótulos e proximidade
@@ -131,7 +212,7 @@ não substituem a execução contra MySQL.
 
 ## Limites e evolução
 
-- Ainda não extrai itens nem inclui OCR, autenticação, dashboard ou IA generativa.
+- O importador ainda não extrai itens nem inclui OCR, autenticação ou IA generativa.
 - Fornecedor é sugerido pela primeira linha abaixo de rótulos como EMISSOR/FROM;
   layouts com nome à direita ou sem rótulo podem exigir preenchimento manual.
 - Valores monetários sugeridos exigem duas casas decimais no texto. Campos fiscais
@@ -145,8 +226,8 @@ não substituem a execução contra MySQL.
 - Tributos são tratados como adicionais na conferência aritmética. Diferença gera
   aviso, pois alguns documentos já os incluem no subtotal.
 - Futuro OCR pode produzir a mesma estrutura de palavras e coordenadas. Outros
-  documentos devem ter seu próprio conjunto de campos e validações. Dashboard
-  consumirá somente faturas confirmadas, sempre separando moedas.
+  documentos devem ter seu próprio conjunto de campos e validações. O dashboard
+  usa faturas revisadas para gerar previsões, sempre separando moedas.
 
 ## Referências e dependências
 
