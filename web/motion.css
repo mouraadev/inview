@@ -1,0 +1,76 @@
+/* Quiet feedback, without intercepting wheel or touch scrolling. */
+:root {
+  --ease-settle: cubic-bezier(.2, .75, .25, 1);
+  --motion-fast: 160ms;
+  --motion-card: 240ms;
+}
+
+html { scroll-behavior: smooth; scroll-padding-top: 90px; }
+dialog, .table-scroll, .evidence { scroll-behavior: smooth; }
+
+.card, .balance-card, .import-card {
+  transition: transform var(--motion-card) var(--ease-settle),
+              box-shadow var(--motion-card) var(--ease-settle),
+              border-color var(--motion-card) ease;
+}
+
+button, .button, .nav-item, .icon-button, .text-button, .workspace,
+.settle-button, .switch, a.button, .brand-icon {
+  transition: transform var(--motion-fast) var(--ease-settle),
+              background-color var(--motion-fast) ease,
+              color var(--motion-fast) ease,
+              border-color var(--motion-fast) ease,
+              box-shadow var(--motion-fast) ease,
+              opacity var(--motion-fast) ease;
+}
+.text-button { border-radius: 7px; }
+.movement, tbody tr, .document-row {
+  transition: background-color 180ms ease;
+}
+.field input, .field select, .search, .filters label {
+  transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+.field input:focus, .field select:focus, .search:focus {
+  border-color: #70a58b;
+  background-color: #fff;
+  box-shadow: 0 0 0 3px #187d590b;
+}
+.card:focus-within { border-color: #b0cdbb; }
+
+/* No sticky hover or lifted cards on touchscreens. */
+@media (hover: hover) and (pointer: fine) {
+  .card:hover {
+    transform: translateY(-2px);
+    border-color: #cdded3;
+    box-shadow: 0 10px 28px #17382a0c, 0 2px 6px #17382a05;
+  }
+  .balance-card:hover {
+    transform: translateY(-2px);
+    box-shadow: inset 0 1px 0 #ffffff20, 0 12px 30px #143b2626;
+  }
+  .import-card:hover { border-color: #c6ddce; box-shadow: 0 6px 18px #17382a0a; }
+  .button:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 4px 12px #17382a14; }
+  .button:not(.primary):not(:disabled):hover { background-color: #f1f7f3; border-color: #c8ddcf; }
+  .text-button:not(:disabled):hover { background-color: #eaf3ee; color: #245b40; }
+  .workspace:not(:disabled):hover { background-color: #f7faf8; border-color: #c8ddcf; }
+  .movement:hover, tbody tr:hover, .document-row:hover { background-color: #f5f9f6; }
+  .filters label:hover { border-color: #b7d0bf; }
+}
+
+button:not(:disabled):active, a.button:active {
+  transform: scale(.97);
+  transition-duration: 80ms;
+}
+button:disabled { transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  html, dialog, .table-scroll, .evidence { scroll-behavior: auto; }
+  .card, .balance-card, .import-card, button, a.button, .brand-icon,
+  .movement, tbody tr, .document-row, .field input, .field select, .search, .filters label {
+    transition: none;
+  }
+  .card:hover, .balance-card:hover, .button:hover,
+  button:not(:disabled):active, a.button:active, .brand:active .brand-icon {
+    transform: none;
+  }
+}
