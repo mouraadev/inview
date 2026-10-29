@@ -1,3 +1,19 @@
+[project]
+name = "inview"
+version = "0.1.0"
+description = "Dashboard de planejamento financeiro e extração de faturas."
+requires-python = ">=3.12"
+dependencies = [
+    "Flask>=3.1,<4",
+    "pdfplumber>=0.11,<0.12",
+    "PyMySQL>=1.1,<2",
+    "cryptography>=43",
+    "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+
 [tool.vercel]
 entrypoint = "vercel_app:app"
 

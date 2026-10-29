@@ -6,6 +6,10 @@ Selecione o preset **Flask**, com a raiz do projeto na raiz deste repositório.
 Deixe os comandos de build e diretório de saída sem substituições manuais.
 O `pyproject.toml` aponta para `vercel_app:app`, o ponto de entrada Flask da
 demonstração pública. Para uso local, execute `dashboard.py`.
+As dependências de execução estão declaradas em `[project.dependencies]` no
+`pyproject.toml`, incluindo Flask. Ao atualizar essas versões, mantenha os mesmos
+intervalos no `requirements.txt`, usado na instalação local; pytest é apenas
+uma dependência de testes.
 O build executa `build_vercel.py`, copiando a interface para `public/assets`
 e preparando a página inicial para o CDN da Vercel.
 
