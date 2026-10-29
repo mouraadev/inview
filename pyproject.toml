@@ -1,0 +1,5 @@
+[tool.vercel]
+entrypoint = "vercel_app:app"
+
+[tool.vercel.scripts]
+build = "python build_vercel.py"

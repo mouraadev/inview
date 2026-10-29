@@ -1,5 +1,30 @@
 # Inview
 
+## Publicar a demonstração na Vercel
+
+Selecione o preset **Flask**, com a raiz do projeto na raiz deste repositório.
+Deixe os comandos de build e diretório de saída sem substituições manuais.
+O `pyproject.toml` aponta para `vercel_app:app`, o ponto de entrada Flask da
+demonstração pública. Para uso local, execute `dashboard.py`.
+O build executa `build_vercel.py`, copiando a interface para `public/assets`
+e preparando a página inicial para o CDN da Vercel.
+
+**A versão hospedada é uma demonstração pública somente para consulta.**
+Ela gera dados fictícios por requisição, ignora a seleção de espaço pessoal e
+não lê arquivos JSON locais nem acessa MySQL. Gravações e uploads são bloqueados
+no servidor, e os controles correspondentes ficam desativados na interface.
+Filtros, gráficos e navegação continuam disponíveis. Não configure credenciais
+de banco para essa demonstração.
+
+O modo local mantém todas as funcionalidades. Os arquivos JSON locais não são
+persistência adequada para funções serverless. Para oferecer contas pessoais
+online, será necessário implementar autenticação, isolamento por usuário e
+persistência externa antes de habilitar gravações nessa implantação.
+
+Após enviar o commit ao GitHub, faça uma nova implantação na Vercel.
+Confira `/`, `/assets/app.js` e `/api/dashboard`; o build local pode ser
+verificado com `python build_vercel.py`.
+
 ## Dashboard financeiro — interface principal
 
 O Inview agora reúne saldo disponível, previsão de saldo no fim do mês,
@@ -14,7 +39,6 @@ Para abrir localmente, no PowerShell na pasta do projeto:
 ```
 
 Abra **http://127.0.0.1:8000**. Para parar, pressione Ctrl+C no terminal.
-Não é necessário iniciar o Streamlit para usar o dashboard.
 
 Clique em **Meu espaço → Meus dados** para começar seu cadastro pessoal sem
 dados fictícios. Esse espaço usa `data/dashboard-local.json`, separado da demo,
@@ -79,27 +103,6 @@ transferência entre contas. Recorrências são mensais e
 de valor fixo. Previsão é calculada pelos lançamentos cadastrados, sem estimativa
 automática de despesas variáveis. O servidor escuta apenas em 127.0.0.1.
 
-## Importador anterior — preservado
-
-Aplicação local em Python para extrair sugestões de campos de faturas PDF,
-conferir e corrigir os dados no Streamlit e confirmar registros no MySQL.
-Não depende de templates por empresa. As regras reconhecem rótulos e proximidade
-espacial; não garantem interpretação correta de qualquer layout.
-
-## Executar a interface
-
-No PowerShell, na pasta deste projeto:
-
-```powershell
-py -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m streamlit run app.py
-```
-
-Se `.venv` já existe, não é necessário recriá-lo. A importação e a conferência
-funcionam sem MySQL; salvar e consultar exigem conexão. O Streamlit informa o
-endereço local, normalmente http://localhost:8501.
-
 ## MySQL local
 
 Requer MySQL 8.4 ou Docker Desktop com Compose. Docker e MySQL não foram
@@ -114,35 +117,33 @@ $env:MYSQL_USER = 'inview'
 $env:MYSQL_PASSWORD = Read-Host 'Senha do usuário inview' -MaskInput
 $env:MYSQL_ROOT_PASSWORD = Read-Host 'Senha administrativa do MySQL' -MaskInput
 docker compose up -d --wait
-.\.venv\Scripts\python.exe banco.py
-.\.venv\Scripts\python.exe -m streamlit run app.py
+$env:INVIEW_MODO = 'mysql'
+.\.venv\Scripts\python.exe dashboard.py --init-db
+.\.venv\Scripts\python.exe dashboard.py
 ```
 
 `-MaskInput` requer PowerShell 7.1+. Em terminais anteriores, configure as senhas
 nas variáveis de ambiente pela interface do Windows. Não coloque senhas no código
 nem as publique. O Compose recebe as variáveis do terminal; a aplicação também.
 Se já houver MySQL, configure as mesmas variáveis, crie um banco vazio e um usuário
-com acesso a ele e execute `banco.py`; não precisa do Compose.
+com acesso a ele e execute `dashboard.py --init-db`; não precisa do Compose.
 
 O volume `mysql_data` mantém os dados entre reinicializações. `docker compose stop`
-para o serviço sem apagar o volume. As tabelas são criadas por `schema.sql`.
-Executar `banco.py` novamente não apaga dados e não é um mecanismo de migração.
+para o serviço sem apagar o volume. As tabelas do dashboard são criadas por
+`financeiro.sql`. Inicializar novamente não apaga dados e não é um mecanismo de migração.
 
-## Uso
+## Importação de faturas no dashboard
 
-1. Envie um PDF com texto selecionável, até 10 MB. PDF ilegível, sem texto ou com
-   senha recebe uma mensagem de falha. OCR ainda não está disponível.
-2. Confira o texto por página e baixe/abra o PDF original para conferir a aparência.
-   O painel de evidências mostra todos os candidatos, rótulos e coordenadas.
-3. Escolha explicitamente o formato monetário (`pt-BR`: `3.325,00`; `en-US`:
-   `2,181.60`) e a ordem das datas com barras (`DMY` ou `MDY`). Datas ISO são aceitas.
-   Esses formatos não são inferidos da moeda. Corrija campos e complete ausências.
-4. Clique em **Validar e verificar duplicidade**. Campos com candidatos conflitantes
-   começam vazios. Uma sugestão única também precisa de conferência humana.
-5. Confirme que é uma fatura e, se necessário, reconheça os avisos ou a duplicidade.
-   Clique em **Confirmar e salvar no MySQL**.
-6. Em **Faturas confirmadas**, consulte as 200 confirmações mais recentes, baixe o
-   PDF original e examine a extração e o histórico de correções.
+1. Clique em **Importar PDF** e envie uma fatura com texto selecionável, até 10 MB.
+   OCR ainda não está disponível; PDFs sem texto ou com senha são rejeitados.
+2. Confira os candidatos e avisos da extração. Escolha o formato monetário
+   (`pt-BR` ou `en-US`) e a ordem das datas (`DMY` ou `MDY`).
+3. Corrija os campos, escolha conta, categoria, tipo e data prevista do movimento.
+4. Confirme a revisão e eventuais avisos antes de criar o lançamento previsto.
+   Importar uma fatura não confirma o pagamento. O PDF original fica preservado.
+
+A extração usa rótulos e proximidade espacial, sem templates por empresa.
+Não há garantia de interpretação correta de qualquer layout.
 
 Campos obrigatórios adotados para este recorte: fornecedor, número, emissão,
 moeda e total. Identificador fiscal, vencimento, subtotal, descontos, tributos
@@ -162,10 +163,15 @@ fiscal. Ausência é `NULL`, não zero. Nenhum status de pagamento é inferido.
 - `banco.py`: SQL direto parametrizado, para tornar consultas e transações
   explícitas. A confirmação insere documento e fatura em uma transação InnoDB;
   qualquer falha anterior ao commit executa rollback.
-- `app.py`: interface de conferência, sem frontend separado ou serviços pagos.
+- `dashboard.py`: API Flask e inicialização do servidor local.
+- `web/`: interface atual em HTML, CSS e JavaScript.
+- `vercel_app.py`: demonstração pública somente para consulta.
 - `consultas.sql`: total por fornecedor/moeda, evolução mensal, vencimentos e
   suspeitas de duplicidade. Os indicadores representam valor faturado, não pago.
 
+O módulo SQL legado (`banco.py`, `schema.sql` e `consultas.sql`) permanece
+como referência e para seus testes; sua interface antiga foi removida.
+O dashboard utiliza as tabelas `fin_*` descritas acima. No esquema legado,
 `documentos` guarda o PDF original como BLOB, SHA-256 único e extração JSON imutável.
 `faturas` tem relação 1:1 por `documento_id` (FK e UNIQUE), campos aprovados em tipos
 SQL próprios e JSON de revisão com entradas, normalizados, alterações e decisões.
@@ -192,7 +198,8 @@ ficam registradas de forma durável para estatísticas.
 
 Testes verificam dinheiro, datas, ausências, associação espacial, resultados por
 campo nos dois PDFs sintéticos, correções, reimportação e comportamento de transação
-com conexão simulada. A interface é exercitada com o AppTest do Streamlit.
+com conexão simulada. Os testes também verificam as rotas Flask, projeções,
+recorrências, gestão de registros e isolamento da demonstração pública.
 Os PDFs `inview_invoice_01_brl.pdf` e `inview_invoice_02_usd.pdf` são procurados em
 Downloads ou na pasta indicada por `INVIEW_PDFS_TESTE`; se ausentes, somente esses
 casos são pulados. PDFs não foram copiados nem versionados.
@@ -232,12 +239,11 @@ não substituem a execução contra MySQL.
 ## Referências e dependências
 
 - [pdfplumber](https://github.com/jsvine/pdfplumber): leitura e coordenadas; licença MIT.
-- [Streamlit](https://docs.streamlit.io/develop/api-reference/execution-flow/st.form):
-  formulários e revisão; licença Apache 2.0.
+- [Flask](https://flask.palletsprojects.com/): API e servidor da aplicação; licença BSD-3-Clause.
 - [PyMySQL](https://pymysql.readthedocs.io/en/latest/user/examples.html): SQL
   parametrizado e transações; licença MIT. `cryptography` suporta autenticação moderna.
 - [pytest](https://docs.pytest.org/): testes; licença MIT.
-- [MySQL](https://dev.mysql.com/doc/refman/8.4/en/): banco obrigatório, executado
+- [MySQL](https://dev.mysql.com/doc/refman/8.4/en/): banco opcional, executado
   separadamente. Distribuição Community sob GPLv2; consulte as licenças da imagem.
 - [invoice2data](https://github.com/invoice-x/invoice2data): referência conceitual
   avaliada, licença MIT. Não é usado pelo fluxo atual, que dispensa templates por

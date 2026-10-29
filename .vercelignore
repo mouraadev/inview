@@ -1,0 +1,10 @@
+.venv/
+.env
+.env/
+.git/
+data/
+tests/
+__pycache__/
+.pytest_cache/
+*.pdf
+aurora_extraido.txt
