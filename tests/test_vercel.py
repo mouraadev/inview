@@ -47,4 +47,45 @@ def test_build_publica_apenas_interface(tmp_path, monkeypatch):
     assert not (public / 'data').exists()
     html = (public / 'index.html').read_text(encoding='utf-8')
     assert 'public-demo.js' in html
-    assert 'somente para consulta' in html
+    assert 'neste navegador' in html
+    assert html.index('public-demo.js') < html.index('/assets/app.js')
+
+
+@pytest.mark.parametrize('tipo,sinal', [('entrada', 1), ('saida', -1)])
+@pytest.mark.parametrize('status', ['previsto', 'realizado'])
+def test_novo_lancamento_publico_recalcula_sem_compartilhar(tipo, sinal, status):
+    from decimal import Decimal
+    from financeiro import hoje, demonstracao
+    client = app.test_client()
+    headers = {'X-Inview': 'local'}
+    before = client.get('/api/dashboard').json
+    item = dict(tipo=tipo, valor='123.45', descricao='Teste navegador',
+                categoria='Outros', conta_id=demonstracao()['contas'][0]['id'],
+                data=hoje().isoformat(), status=status)
+    response = client.post('/api/demo/lancamentos', headers=headers,
+                           json={'lancamentos': [], 'novo': item})
+    assert response.status_code == 201
+    items = response.json['lancamentos']
+    assert len(items) == 1
+    assert items[0]['tipo'] == tipo and items[0]['status'] == status
+    # O navegador reenvia a lista salva inclusive após recarregar a página.
+    for _ in range(2):
+        after = client.post('/api/demo/dashboard', headers=headers,
+                            json={'lancamentos': items}).json
+        delta = Decimal('123.45') * sinal
+        assert Decimal(after['saldo_final']) == Decimal(before['saldo_final']) + delta
+        assert Decimal(after['saldo_atual']) == Decimal(before['saldo_atual']) + (delta if status == 'realizado' else 0)
+    other = app.test_client().get('/api/dashboard').json
+    assert other['saldo_atual'] == before['saldo_atual']
+    assert other['saldo_final'] == before['saldo_final']
+
+
+def test_publico_rejeita_lista_invalida_e_origem_externa():
+    client = app.test_client()
+    assert client.post('/api/demo/dashboard', json={'lancamentos': []}).status_code == 403
+    headers = {'X-Inview': 'local'}
+    for items in ['errado', [{}], [{}] * 1001]:
+        assert client.post('/api/demo/dashboard', headers=headers,
+                           json={'lancamentos': items}).status_code == 400
+    assert client.post('/api/demo/dashboard', headers={**headers, 'Origin': 'https://outro.example'},
+                       json={'lancamentos': []}).status_code == 403

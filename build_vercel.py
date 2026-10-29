@@ -7,11 +7,11 @@ ROOT = Path(__file__).resolve().parent
 
 def pagina_publica():
     html = (ROOT / 'web' / 'index.html').read_text(encoding='utf-8')
-    html = html.replace('</head>', '<script defer src="/assets/public-demo.js"></script></head>')
+    html = html.replace('<script defer src="/assets/app.js">', '<script defer src="/assets/public-demo.js"></script><script defer src="/assets/app.js">')
     return html.replace(
         'Dados fictícios para explorar. Suas alterações ficam salvas neste computador.',
-        'Demonstração pública com dados fictícios, somente para consulta. '
-        'Para importar faturas e salvar alterações, execute o projeto localmente.')
+        'Demonstração com dados fictícios. Novas entradas e saídas ficam salvas apenas neste navegador. '
+        'Sem sincronização; limpar os dados do navegador apaga seus lançamentos.')
 
 
 def build():

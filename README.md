@@ -13,12 +13,17 @@ uma dependência de testes.
 O build executa `build_vercel.py`, copiando a interface para `public/assets`
 e preparando a página inicial para o CDN da Vercel.
 
-**A versão hospedada é uma demonstração pública somente para consulta.**
-Ela gera dados fictícios por requisição, ignora a seleção de espaço pessoal e
-não lê arquivos JSON locais nem acessa MySQL. Gravações e uploads são bloqueados
-no servidor, e os controles correspondentes ficam desativados na interface.
-Filtros, gráficos e navegação continuam disponíveis. Não configure credenciais
-de banco para essa demonstração.
+**A versão hospedada permite novos lançamentos no navegador.**
+Entradas e saídas, previstas ou realizadas, são validadas pelo servidor e salvas
+no localStorage deste navegador. O dashboard combina esses movimentos com os
+exemplos fictícios e recalcula saldos e gráficos. Recarregar preserva os dados;
+limpar o armazenamento do navegador os apaga. Não há sincronização entre aparelhos.
+Os dados são enviados à API para validação e cálculo, sem persistência no servidor.
+
+Importação de PDFs, edição, exclusão, confirmação de previstos e gestão de contas
+ou recorrências continuam disponíveis apenas na versão local. A implantação não
+lê arquivos JSON pessoais nem acessa MySQL. Não configure credenciais de banco
+para essa demonstração.
 
 O modo local mantém todas as funcionalidades. Os arquivos JSON locais não são
 persistência adequada para funções serverless. Para oferecer contas pessoais
