@@ -10,7 +10,7 @@ def pagina_publica():
     html = html.replace('<script defer src="/assets/app.js">', '<script defer src="/assets/public-demo.js"></script><script defer src="/assets/app.js">')
     return html.replace(
         'Dados fictícios para explorar. Suas alterações ficam salvas neste computador.',
-        'Demonstração com dados fictícios. Novas entradas e saídas ficam salvas apenas neste navegador. '
+        'Demonstração com dados fictícios. Lançamentos, pagamentos e recorrências ficam salvos apenas neste navegador. '
         'Sem sincronização; limpar os dados do navegador apaga seus lançamentos.')
 
 

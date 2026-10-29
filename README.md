@@ -13,15 +13,18 @@ uma dependência de testes.
 O build executa `build_vercel.py`, copiando a interface para `public/assets`
 e preparando a página inicial para o CDN da Vercel.
 
-**A versão hospedada permite novos lançamentos no navegador.**
+**A versão hospedada permite gerenciar lançamentos e recorrências no navegador.**
 Entradas e saídas, previstas ou realizadas, são validadas pelo servidor e salvas
 no localStorage deste navegador. O dashboard combina esses movimentos com os
 exemplos fictícios e recalcula saldos e gráficos. Recarregar preserva os dados;
 limpar o armazenamento do navegador os apaga. Não há sincronização entre aparelhos.
 Os dados são enviados à API para validação e cálculo, sem persistência no servidor.
 
-Importação de PDFs, edição, exclusão, confirmação de previstos e gestão de contas
-ou recorrências continuam disponíveis apenas na versão local. A implantação não
+Pagar e Receber confirmam os previstos e atualizam o saldo. É possível criar,
+editar, excluir e restaurar lançamentos e recorrências, além de pausar e reativar
+regras mensais. Os lançamentos da versão anterior são migrados automaticamente
+para o novo estado no navegador. Pagamentos já confirmados não são duplicados.
+Importação de PDFs e gestão de contas continuam disponíveis apenas na versão local. A implantação não
 lê arquivos JSON pessoais nem acessa MySQL. Não configure credenciais de banco
 para essa demonstração.
 

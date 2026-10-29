@@ -89,3 +89,63 @@ def test_publico_rejeita_lista_invalida_e_origem_externa():
                            json={'lancamentos': items}).status_code == 400
     assert client.post('/api/demo/dashboard', headers={**headers, 'Origin': 'https://outro.example'},
                        json={'lancamentos': []}).status_code == 403
+
+
+def test_pagar_receber_recorrencias_e_recarga(monkeypatch):
+    from datetime import date
+    from decimal import Decimal
+    import financeiro
+    monkeypatch.setattr(financeiro, 'hoje', lambda: date(2026, 10, 28))
+    client = app.test_client()
+    headers = {'X-Inview': 'local'}
+    def dashboard(state=None):
+        r = client.post('/api/demo/dashboard', headers=headers,
+                        json={'estado': state} if state else {'lancamentos': []})
+        assert r.status_code == 200, r.json
+        return r.json
+    initial = dashboard()
+    state = initial['estado_navegador']
+    def action(**values):
+        nonlocal state
+        r = client.post('/api/demo/acao', headers=headers, json={'estado':state, **values})
+        assert r.status_code == 200, r.json
+        state = r.json['estado']
+        # Simula recarga com o estado devolvido à persistência do navegador.
+        state = dashboard(state)['estado_navegador']
+        return r.json['item']
+    action(acao='realizar', id='icloud:2026-10-29')
+    action(acao='realizar', id='freela:2026-10-30')
+    current = dashboard(state)
+    assert Decimal(current['saldo_atual']) == Decimal(initial['saldo_atual']) - Decimal('14.90') + Decimal('1800.00')
+    r = client.post('/api/demo/acao', headers=headers, json={'estado':state,'acao':'realizar','id':'icloud:2026-10-29'})
+    assert r.status_code == 400
+    action(acao='alternar', id='aluguel')
+    assert not next(r for r in state['recorrencias'] if r['id']=='aluguel')['ativa']
+    action(acao='alternar', id='aluguel')
+    assert next(r for r in state['recorrencias'] if r['id']=='aluguel')['ativa']
+    item = action(acao='criar', colecao='lancamentos', dados=dict(tipo='saida', valor='5000.00',
+        descricao='MacBook', categoria='Outros', conta_id='principal', data='2026-10-28',status='previsto'))
+    action(acao='realizar', id=item['id'])
+    action(acao='editar', id=item['id'], colecao='lancamentos', dados=dict(item, valor='4900.00',status='realizado'))
+    action(acao='lixeira', id=item['id'], colecao='lancamentos')
+    assert dashboard(state)['lixeira']
+    action(acao='lixeira', id=item['id'], colecao='lancamentos', dados={'restaurar':True})
+    assert not dashboard(state)['lixeira']
+    assert dashboard()['saldo_atual'] == initial['saldo_atual']
+
+
+def test_migracao_preserva_lancamento_existente_e_cria_recorrencia():
+    from financeiro import hoje
+    client = app.test_client()
+    headers = {'X-Inview':'local'}
+    saved = dict(id='a'*32, tipo='entrada',valor='100.00',descricao='Já salvo',categoria='Outros',
+                 conta_id='principal',data=hoje().isoformat(),status='previsto')
+    response = client.post('/api/demo/dashboard', headers=headers,json={'lancamentos':[saved]})
+    state = response.json['estado_navegador']
+    assert any(r['id']==saved['id'] for r in state['lancamentos'])
+    response = client.post('/api/demo/acao',headers=headers,json={'estado':state,'acao':'criar',
+        'colecao':'recorrencias','dados':dict(tipo='saida',valor='50.00',descricao='Assinatura',
+        categoria='Assinaturas',conta_id='principal',dia=15,inicio=hoje().isoformat())})
+    assert response.status_code == 200
+    state = response.json['estado']
+    assert client.post('/api/demo/dashboard',headers=headers,json={'estado':state}).status_code == 200

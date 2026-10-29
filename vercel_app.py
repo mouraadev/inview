@@ -6,7 +6,9 @@ from datetime import date
 
 from build_vercel import pagina_publica
 from dashboard import criar_app
-from financeiro import demonstracao, validar_lancamento
+from financeiro import demonstracao, validar_lancamento, realizar
+from gestao import editar, lixeira
+from estado_publico import validar_estado
 
 
 class DemonstracaoPublica:
@@ -23,7 +25,7 @@ app.view_functions['index'] = pagina_publica
 
 
 def somente_consulta():
-    if request.method == 'POST' and request.path in {'/api/demo/dashboard', '/api/demo/lancamentos'}:
+    if request.method == 'POST' and request.path in {'/api/demo/dashboard', '/api/demo/lancamentos', '/api/demo/acao'}:
         return None
     if request.method not in {'GET', 'HEAD', 'OPTIONS'}:
         return jsonify(erro='Demonstração pública somente para consulta. '
@@ -39,6 +41,9 @@ def estado_do_navegador():
     body = request.get_json(silent=True)
     if not isinstance(body, dict):
         raise ValueError('Informe um objeto com os lançamentos.')
+    if 'estado' in body:
+        estado = validar_estado(body['estado'])
+        return body, estado, []
     items = body.get('lancamentos', [])
     if not isinstance(items, list) or len(items) > 1000:
         raise ValueError('Informe até 1000 lançamentos por navegador.')
@@ -71,6 +76,9 @@ def estado_do_navegador():
 def dashboard_navegador():
     _, g.demo_estado, _ = estado_do_navegador()
     resposta = app.view_functions['dados']()
+    payload = resposta.get_json()
+    payload['estado_navegador'] = g.demo_estado
+    resposta.set_data(app.json.dumps(payload))
     resposta.headers['Cache-Control'] = 'no-store'
     return resposta
 
@@ -84,3 +92,37 @@ def lancamento_navegador():
     resposta = jsonify(lancamentos=[*novos, novo])
     resposta.headers['Cache-Control'] = 'no-store'
     return resposta, 201
+
+
+@app.post('/api/demo/acao')
+def acao_navegador():
+    body, estado, _ = estado_do_navegador()
+    action = body.get('acao')
+    values = body.get('dados', {})
+    ident = body.get('id')
+    collection = body.get('colecao', 'lancamentos')
+    if collection not in {'lancamentos', 'recorrencias'}:
+        raise ValueError('Cadastro não permitido.')
+    if action == 'criar':
+        if len(estado[collection]) >= (200 if collection == 'recorrencias' else 2000):
+            raise ValueError('Limite de registros atingido.')
+        item = validar_lancamento(values, estado, collection == 'recorrencias')
+        estado[collection].append(item)
+    elif action == 'realizar':
+        item = realizar(estado, ident)
+    elif action == 'alternar':
+        item = next((r for r in estado['recorrencias'] if r['id'] == ident and not r.get('excluido')), None)
+        if item is None:
+            raise ValueError('Recorrência não encontrada.')
+        item['ativa'] = not item['ativa']
+    elif action == 'editar':
+        item = editar(estado, collection, ident, values)
+    elif action == 'lixeira':
+        if not isinstance(values, dict):
+            raise ValueError('Campos inválidos.')
+        item = lixeira(estado, collection, ident, values.get('restaurar') is True)
+    else:
+        raise ValueError('Ação inválida.')
+    resposta = jsonify(estado=estado, item=item)
+    resposta.headers['Cache-Control'] = 'no-store'
+    return resposta
