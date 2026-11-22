@@ -1,0 +1,9 @@
+{
+  "name": "inview-assets",
+  "private": true,
+  "dependencies": {
+    "@tesseract.js-data/por": "1.0.0",
+    "pdfjs-dist": "6.5.438",
+    "tesseract.js": "7.0.0"
+  }
+}

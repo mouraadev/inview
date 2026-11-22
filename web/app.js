@@ -29,7 +29,7 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const privatePage = location.pathname === '/app';
 if (privatePage) {
-  document.querySelectorAll('[data-view="documentos"], [data-action="importar"]').forEach(button => button.remove());
+  document.querySelector('[data-view="documentos"]').remove();
   $('#mode-badge').textContent = 'Meu espaço';
   $('#demo-note').hidden = true;
   window.addEventListener('pageshow', event => {
@@ -346,6 +346,7 @@ function bindForm(form, {send, success, busy='Salvando…', prepare, after}) {
         notify(success);
       }
     } catch (failure) {
+      if (failure.name === 'AbortError') return;
       if (form.isConnected && $('#editor').open) {
         error.textContent = failure.message;
         error.classList.add('show');
@@ -461,7 +462,79 @@ function settle(id) {
   });
 }
 
+function importOnlinePDF() {
+  if (!data.todas_contas.some(conta => conta.moeda === 'BRL')) {
+    openDialog('Importar fatura de cartão', `<p class="form-help">Adicione uma conta em reais para receber o lançamento da fatura.</p>
+      <button type="button" class="button primary" data-action="conta">${icon('plus')}Adicionar conta</button>`);
+    return;
+  }
+  openDialog('Importar fatura de cartão', `<p class="form-help" id="online-pdf-progress" role="status"></p>
+    <form id="online-pdf-upload">
+    <label class="field full">Fatura em PDF
+      <input type="file" name="arquivo" accept="application/pdf,.pdf" aria-describedby="online-pdf-help" required autofocus>
+    </label>
+    <p class="form-help" id="online-pdf-help">Fatura em reais de até 10 MB. Lemos as primeiras cinco páginas no seu aparelho.</p>
+    ${actions('Extrair dados')}</form>`);
+  const form = $('#online-pdf-upload');
+  const progress = $('#online-pdf-progress');
+  const input = form.elements.arquivo;
+  input.addEventListener('change', () => {
+    input.setCustomValidity(input.files[0]?.size > 10 * 1024 * 1024 ? 'Selecione um PDF de até 10 MB.' : '');
+    input.reportValidity();
+  });
+  bindForm(form, {
+    busy: 'Analisando…',
+    send: async ({arquivo}) => {
+      const dialog = $('#editor');
+      const controller = new AbortController();
+      const cancel = () => controller.abort();
+      dialog.addEventListener('close', cancel, {once: true});
+      progress.textContent = 'Preparando a leitura…';
+      input.disabled = true;
+      try {
+        const {analisarFatura} = await import('/assets/faturas.mjs');
+        const resultado = await analisarFatura(arquivo, texto => {progress.textContent = texto;}, controller.signal);
+        return {nome: arquivo.name, ...resultado};
+      } catch (falha) {
+        if (falha instanceof TypeError) throw new Error('O leitor de PDF está indisponível. Tente novamente.');
+        throw falha;
+      } finally {
+        dialog.removeEventListener('close', cancel);
+        progress.textContent = '';
+        input.disabled = false;
+      }
+    },
+    after: reviewOnlinePDF,
+  });
+}
+
+function reviewOnlinePDF({nome, campos, arquivo_sha256}) {
+  const parcial = !campos.descricao || !campos.valor || !campos.data;
+  const contas = data.todas_contas.filter(conta => conta.moeda === 'BRL').map(conta => [conta.id, conta.nome]);
+  openDialog('Revisar fatura', `<form id="online-pdf-review">
+    <p class="form-help pdf-filename">${esc(nome)}</p>
+    <p class="form-help">${parcial ? 'Alguns campos precisam ser preenchidos. Confira os dados com a sua fatura.' : 'Confira o total e o vencimento antes de criar a saída prevista.'}</p>
+    <div class="form-grid">
+      ${field('descricao', 'Descrição ou cartão', 'text', campos.descricao, 'placeholder="Ex.: Fatura do meu cartão" maxlength="150" required data-full autofocus')}
+      ${moneyField('valor', 'Total da fatura', campos.valor ? valores.formatar(campos.valor, 'pt-BR') : '', {required:true, positive:true})}
+      ${field('data', 'Vencimento', 'date', campos.data, 'required')}
+      ${select('conta_id', 'Conta de pagamento', [['', 'Selecione uma conta'], ...contas], '', 'required')}
+      ${select('categoria', 'Categoria', data.categorias_disponiveis, 'Outros', 'required')}
+    </div>
+    ${actions('Criar lançamento previsto')}</form>`, true);
+  const form = $('#online-pdf-review');
+  registerAccountDate(form, form.elements.data);
+  bindForm(form, {
+    prepare: watchMoney(form),
+    send: dados => api('/api/faturas/importar', {method:'POST', body:JSON.stringify({
+      ...dados, valor: valores.normalizar(dados.valor, 'pt-BR', {positivo:true, limite:12}), arquivo_sha256,
+    })}),
+    success: 'Fatura conferida. Lançamento previsto criado.',
+  });
+}
+
 function importPDF() {
+  if (privatePage) return importOnlinePDF();
   const methods = data.pdf_ia
     ? select('metodo', 'Método de extração', [['texto','Texto do PDF'], ['ia','IA local']], 'texto') : '';
   openDialog('Importar fatura', `<form id="upload-form"><label class="field full">Arquivo PDF

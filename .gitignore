@@ -7,4 +7,5 @@ data/
 *.pdf
 aurora_extraido.txt
 public/
+node_modules/
 

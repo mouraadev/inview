@@ -232,6 +232,8 @@ dialog::backdrop { background: #0009; }
 .field-error { color: #ffbca4; font-size: 0.8125rem; }
 .field input[aria-invalid="true"] { border-color: #ef9c87; }
 .form-help { color: #bbb; font-size: 0.875rem; line-height: 1.6; }
+.pdf-filename { color: #ededed; overflow-wrap: anywhere; }
+#online-pdf-progress:empty { margin: 0; }
 .check-field { color: #ccc; align-items: center; min-height: 2.75rem; font-size: 0.875rem; cursor: pointer; }
 .check-field input { accent-color: #b5ec67; inline-size: 1.125rem; block-size: 1.125rem; flex: none; margin: 0; }
 .form-error { background: #3a211a; color: #ffbca4; font-size: 0.875rem; }

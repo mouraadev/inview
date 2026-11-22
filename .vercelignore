@@ -4,6 +4,7 @@
 .git/
 data/
 tests/
+node_modules/
 __pycache__/
 .pytest_cache/
 *.pdf

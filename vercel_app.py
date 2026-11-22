@@ -1,8 +1,10 @@
 """Entrada hospedada com área privada e demonstração pública."""
 import os
+import re
 from datetime import date
+from pathlib import Path
 
-from flask import Blueprint, abort, current_app, g, jsonify, redirect, request, url_for
+from flask import Blueprint, abort, current_app, g, jsonify, make_response, redirect, request, send_from_directory, url_for
 
 from acesso import carregar_sessao, instalar_acesso, origem_publica
 from build_vercel import pagina_publica
@@ -122,7 +124,8 @@ def acao_navegador():
 
 def criar_app_hospedado(supabase=None, url=None, *, seguro=True):
     origem = origem_publica(url)
-    app = criar_app(RepositorioHospedado(supabase), publicar_index=False)
+    repositorio = RepositorioHospedado(supabase)
+    app = criar_app(repositorio, publicar_index=False)
     if origem and seguro:
         app.config['INVIEW_PUBLIC_URL'] = origem
     instalar_acesso(app, supabase, origem, seguro)
@@ -131,6 +134,31 @@ def criar_app_hospedado(supabase=None, url=None, *, seguro=True):
     @app.get('/app')
     def area_privada():
         return app.send_static_file('index.html')
+
+    @app.get('/assets/pdf-engine/<path:arquivo>')
+    def leitor_pdf(arquivo):
+        return send_from_directory(Path(app.root_path) / 'public' / 'assets' / 'pdf-engine', arquivo)
+
+    @app.post('/api/faturas/importar')
+    def importar_fatura():
+        dados = request.get_json(silent=True)
+        campos = {'descricao', 'valor', 'data', 'conta_id', 'categoria', 'arquivo_sha256'}
+        if not isinstance(dados, dict) or dados.keys() != campos or not all(isinstance(v, str) for v in dados.values()):
+            raise ValueError('Informe apenas os dados revisados da fatura.')
+        identificador = dados['arquivo_sha256']
+        if not re.fullmatch(r'[0-9a-f]{64}', identificador):
+            raise ValueError('Identificador da fatura inválido. Selecione o PDF novamente.')
+
+        with repositorio.transacao() as estado:
+            if any(item.get('arquivo_sha256') == identificador for item in estado['lancamentos']):
+                abort(make_response(jsonify(erro='Este PDF já foi importado. Confira seus lançamentos e a lixeira.'), 409))
+            item = validar_lancamento(dict(dados, tipo='saida', status='previsto'), estado)
+            conta = next(c for c in estado['contas'] if c['id'] == item['conta_id'])
+            if conta['moeda'] != 'BRL':
+                raise ValueError('Selecione uma conta em reais para importar a fatura.')
+            item.update(origem='pdf', arquivo_sha256=identificador)
+            estado['lancamentos'].append(item)
+        return jsonify(item), 201
 
     @app.before_request
     def proteger_area_privada():
