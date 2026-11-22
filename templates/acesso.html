@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0d0b">
+  {% set titulos = {'entrar': 'Acesse seu espaço', 'recuperar': 'Recupere seu acesso', 'invite': 'Defina sua senha', 'recovery': 'Crie uma nova senha'} %}
+  <title>{{ titulos[modo] }} | Inview</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg">
+  <link rel="stylesheet" href="/assets/acesso.css">
+  <script defer src="/assets/acesso.js"></script>
+</head>
+<body class="auth-page">
+  <header class="auth-header">
+    <a class="auth-brand" href="/" aria-label="Inview, página de acesso">
+      <img src="/assets/brand/icon.svg" width="36" height="36" alt="">
+      <span>inview<span class="auth-accent">.</span></span>
+    </a>
+    {% if modo == 'entrar' %}<a class="auth-demo" href="/demo">Explorar demonstração <span aria-hidden="true">↗</span></a>{% endif %}
+  </header>
+  <main class="auth-layout">
+    <div class="auth-content">
+      <h1>{{ titulos[modo] }}</h1>
+      {% if modo == 'entrar' %}
+        <p class="auth-summary">Entre com o e-mail do seu convite para acompanhar suas finanças.</p>
+      {% elif modo == 'recuperar' %}
+        <p class="auth-summary">Informe seu e-mail para receber um link de recuperação.</p>
+      {% else %}
+        <p class="auth-summary">{% if modo == 'invite' %}Crie uma senha para ativar seu espaço no Inview.{% else %}Escolha uma senha para voltar a acessar seu espaço no Inview.{% endif %}</p>
+      {% endif %}
+      {% set alteracao = modo in ('invite', 'recovery') %}
+      {% set rotas = {'entrar': '/api/auth/entrar', 'recuperar': '/api/auth/recuperar', 'invite': '/api/auth/senha', 'recovery': '/api/auth/senha'} %}
+      {% set acoes = {'entrar': 'Entrar', 'recuperar': 'Enviar link de recuperação', 'invite': 'Definir senha', 'recovery': 'Salvar nova senha'} %}
+      {% if not disponivel %}
+        <p class="auth-message" role="status">O acesso privado ainda está indisponível neste ambiente. A <a href="/demo">demonstração</a> está aberta.</p>
+      {% endif %}
+      <form id="auth-form" action="{{ rotas[modo] }}" method="post" data-modo="{{ modo }}">
+        <fieldset {% if not disponivel %}disabled{% endif %}>
+          {% if not alteracao %}
+            <div class="auth-field">
+              <label for="email">E-mail</label>
+              <input id="email" name="email" type="email" autocomplete="{% if modo == 'entrar' %}username{% else %}email{% endif %}" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="254" placeholder="voce@exemplo.com" required>
+            </div>
+          {% endif %}
+          {% if modo != 'recuperar' %}
+            <div class="auth-field">
+              <label for="senha">{% if alteracao %}Nova senha{% else %}Senha{% endif %}</label>
+              <div class="auth-input">
+                <input id="senha" type="password" name="senha" autocomplete="{% if alteracao %}new-password{% else %}current-password{% endif %}" required {% if alteracao %}minlength="12" maxlength="72" aria-describedby="senha-ajuda"{% else %}maxlength="1024"{% endif %}>
+                <button id="toggle-senha" type="button" class="auth-toggle" aria-controls="senha" hidden>Mostrar</button>
+              </div>
+              {% if alteracao %}<p class="auth-hint" id="senha-ajuda">Use pelo menos 12 caracteres.</p>{% endif %}
+            </div>
+          {% endif %}
+          {% if modo == 'entrar' %}<a class="auth-recover" href="/recuperar-senha">Esqueci minha senha</a>{% endif %}
+          <button class="auth-submit" type="submit">{{ acoes[modo] }} <span aria-hidden="true">→</span></button>
+        </fieldset>
+        <p id="auth-status" class="auth-message" role="status" tabindex="-1" hidden></p>
+        <p id="auth-error" class="auth-message auth-error" role="alert" tabindex="-1" hidden></p>
+      </form>
+      {% if modo != 'entrar' %}<a class="auth-back" href="/"><span aria-hidden="true">←</span> Voltar ao login</a>{% endif %}
+      <noscript><p class="auth-message">Ative o JavaScript para entrar ou gerenciar sua senha.</p></noscript>
+    </div>
+    <aside class="auth-visual" aria-label="Planejamento financeiro Inview">
+      <div class="auth-visual-copy">
+        <p>Seu dinheiro,<br>em <em>perspectiva.</em></p>
+        <span>Contas, lançamentos e planos para os próximos meses.</span>
+      </div>
+    </aside>
+  </main>
+</body>
+</html>

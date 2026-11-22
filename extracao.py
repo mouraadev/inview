@@ -143,17 +143,25 @@ def buscar_tributos(paginas): return buscar_campo(paginas, "tributos")
 def buscar_pedidos_compra(paginas): return buscar_campo(paginas, "pedido_compra")
 
 
-def extrair_documento(conteudo: bytes):
+def validar_arquivo_pdf(conteudo: bytes):
     if len(conteudo) > 10 * 1024 * 1024:
         raise ValueError("Limite desta versão: 10 MB por PDF.")
     if not conteudo.startswith(b"%PDF-"):
         raise ValueError("O arquivo não tem um cabeçalho PDF válido.")
+
+
+def extrair_documento(conteudo: bytes):
+    validar_arquivo_pdf(conteudo)
     try:
         paginas = ler_pdf(BytesIO(conteudo))
     except Exception as exc:
         raise ValueError("Não foi possível ler o PDF. Verifique se está íntegro e sem senha.") from exc
     if not any(p["texto"].strip() for p in paginas):
-        raise ValueError("PDF sem texto extraível. OCR ainda não está disponível.")
+        raise ValueError("PDF sem texto extraível. Para digitalizações, use a opção IA local no macOS.")
+    return estruturar_extracao(conteudo, paginas)
+
+
+def estruturar_extracao(conteudo, paginas):
     candidatos = {campo: buscar_campo(paginas, campo) for campo in CAMPOS}
     valores = {}
     avisos = []

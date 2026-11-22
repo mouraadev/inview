@@ -5,22 +5,27 @@ from datetime import date
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
+from secrets import token_bytes
 from uuid import uuid4
 
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, g, jsonify, request, send_file
+from itsdangerous import BadData, URLSafeTimedSerializer
 import pymysql
 
-from extracao import extrair_documento
+from extracao import extrair_documento, validar_arquivo_pdf
+from extracao_ia import ErroAnaliseIA, extrair_com_ia
 from validacao import validar_fatura
 from financeiro import CATEGORIAS, hoje, resumo, validar_lancamento, realizar, dinheiro
 from repositorio_financeiro import Repositorio
 from gestao import editar, lixeira
 
 
-def criar_app(repositorio=None):
+def criar_app(repositorio=None, *, publicar_index=True):
     app = Flask(__name__, static_folder='web', static_url_path='/assets')
     app.config['MAX_CONTENT_LENGTH'] = 11 * 1024 * 1024
     repo = repositorio or Repositorio(os.environ.get('INVIEW_MODO', 'demo'))
+    pdf_ia = publicar_index and os.environ.get('INVIEW_PDF_IA') == '1'
+    autenticador_pdf = URLSafeTimedSerializer(token_bytes(32), salt='inview-pdf-ia')
 
     def current_repo():
         if repositorio or repo.modo == 'mysql':
@@ -33,7 +38,7 @@ def criar_app(repositorio=None):
             if request.headers.get('X-Inview') != 'local':
                 return jsonify(erro='Requisição não autorizada.'), 403
             origem = request.headers.get('Origin')
-            if origem and origem != request.host_url.rstrip('/'):
+            if origem and origem != app.config.get('INVIEW_PUBLIC_URL', request.host_url.rstrip('/')):
                 return jsonify(erro='Origem não autorizada.'), 403
             if request.is_json and not isinstance(request.get_json(silent=True), dict):
                 return jsonify(erro='Informe um objeto com os campos do formulário.'), 400
@@ -50,19 +55,26 @@ def criar_app(repositorio=None):
     def tamanho(exc):
         return jsonify(erro='O PDF deve ter até 10 MB.'), 413
 
-    @app.get('/')
-    def index():
-        return app.send_static_file('index.html')
+    @app.errorhandler(ErroAnaliseIA)
+    def erro_ia(exc):
+        return jsonify(erro=str(exc)), exc.status
+
+    if publicar_index:
+        @app.get('/')
+        def index():
+            return app.send_static_file('index.html')
 
     @app.get('/api/dashboard')
     def dados():
-        with current_repo().transacao() as estado:
+        with current_repo().transacao(gravar=False) as estado:
             resultado = resumo(estado, request.args.get('mes', hoje().strftime('%Y-%m')),
                                request.args.get('conta', 'todas'), request.args.get('moeda', 'BRL'))
-            resultado.update(modo=current_repo().modo, categorias_disponiveis=CATEGORIAS,
+            resultado.update(modo=current_repo().modo, categorias_disponiveis=CATEGORIAS, pdf_ia=pdf_ia,
                              todas_contas=[c for c in estado['contas'] if not c.get('excluido')],
                              lixeira=[dict(i, colecao=k) for k in ('contas', 'lancamentos', 'recorrencias') for i in estado[k] if i.get('excluido')],
                              documentos=[{k: d[k] for k in ('id', 'nome', 'criado_em', 'descricao', 'lancamento_id')} for d in estado['documentos']])
+        if 'usuario' in g:
+            resultado['perfil'] = {'email': g.usuario.get('email')}
         return jsonify(resultado)
 
     @app.post('/api/lancamentos')
@@ -115,10 +127,19 @@ def criar_app(repositorio=None):
         if arquivo is None:
             raise ValueError('Selecione um PDF.')
         conteudo = arquivo.read()
-        extracao = extrair_documento(conteudo)
-        with current_repo().transacao(gravar=False) as estado:
-            if any(d['id'] == extracao['sha256'] for d in estado['documentos']):
+        validar_arquivo_pdf(conteudo)
+        ident = sha256(conteudo).hexdigest()
+        repositorio_atual = current_repo()
+        with repositorio_atual.transacao(gravar=False) as estado:
+            if any(d['id'] == ident for d in estado['documentos']):
                 raise ValueError('Este arquivo já foi importado. Consulte Documentos.')
+        metodo = request.form.get('metodo', 'texto')
+        if metodo == 'ia' and pdf_ia:
+            extracao = extrair_com_ia(conteudo)
+            return jsonify(**extracao, analise_ia=autenticador_pdf.dumps((repositorio_atual.modo, extracao)))
+        if metodo != 'texto':
+            raise ValueError('A IA local está indisponível neste ambiente. Escolha Texto do PDF.')
+        extracao = extrair_documento(conteudo)
         return jsonify(extracao)
 
     @app.post('/api/pdf/confirmar')
@@ -127,16 +148,29 @@ def criar_app(repositorio=None):
         if arquivo is None:
             raise ValueError('Selecione um PDF.')
         entrada = json.loads(request.form.get('revisao', '{}'))
-        if not entrada.get('confirmado'):
+        if not isinstance(entrada, dict) or not entrada.get('confirmado'):
             raise ValueError('Confirme a revisão do documento.')
         conteudo = arquivo.read()
-        extracao = extrair_documento(conteudo)
+        repositorio_atual = current_repo()
+        analise_ia = entrada.pop('analise_ia', None)
+        if analise_ia is None:
+            extracao = extrair_documento(conteudo)
+        else:
+            validar_arquivo_pdf(conteudo)
+            if not pdf_ia or not isinstance(analise_ia, str) or len(analise_ia) > 65536:
+                raise ValueError('Análise de IA inválida. Extraia os dados novamente.')
+            try:
+                modo_analise, extracao = autenticador_pdf.loads(analise_ia, max_age=3600)
+            except BadData:
+                raise ValueError('Análise de IA inválida ou expirada. Extraia os dados novamente.') from None
+            if modo_analise != repositorio_atual.modo or extracao['sha256'] != sha256(conteudo).hexdigest():
+                raise ValueError('A análise de IA pertence a outro arquivo ou espaço. Extraia os dados novamente.')
         dados, erros, avisos = validar_fatura(entrada.get('campos', {}), entrada.get('formato', ''), entrada.get('ordem', ''))
         if erros:
             raise ValueError(' '.join(erros))
         if avisos and not entrada.get('aceitar_avisos'):
             raise ValueError(' '.join(avisos) + ' Confirme os avisos para continuar.')
-        with current_repo().transacao() as estado:
+        with repositorio_atual.transacao() as estado:
             if any(d['id'] == extracao['sha256'] for d in estado['documentos']):
                 raise ValueError('Este mesmo arquivo já foi importado.')
             repetido = any(d['revisao']['fornecedor'].casefold() == dados['fornecedor'].casefold()
@@ -198,14 +232,29 @@ def criar_app(repositorio=None):
     return app
 
 
-if __name__ == '__main__':
+def main(argv=None):
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=8000)
-    parser.add_argument('--init-db', action='store_true')
-    args = parser.parse_args()
+    modo = parser.add_mutually_exclusive_group()
+    modo.add_argument('--local', action='store_true', help='Abre o dashboard local com importação de PDFs.')
+    modo.add_argument('--init-db', action='store_true', help='Inicializa o banco MySQL local.')
+    args = parser.parse_args(argv)
     if args.init_db:
         Repositorio('mysql').inicializar_mysql()
         print('Estrutura financeira MySQL pronta.')
+        return
+
+    if args.local or os.environ.get('INVIEW_MODO'):
+        app = criar_app()
     else:
-        criar_app().run(host='127.0.0.1', port=args.port, debug=False)
+        from supabase_api import Supabase
+        from vercel_app import criar_app_hospedado
+
+        app = criar_app_hospedado(Supabase.do_ambiente(), f'http://127.0.0.1:{args.port}', seguro=False)
+    app.run(host='127.0.0.1', port=args.port, debug=False)
+
+
+if __name__ == '__main__':
+    main()

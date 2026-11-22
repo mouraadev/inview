@@ -1,39 +1,31 @@
-"""Entrada da Vercel: demonstração com lançamentos salvos no navegador."""
-from contextlib import contextmanager
-
-from flask import g, jsonify, request
+"""Entrada hospedada com área privada e demonstração pública."""
+import os
 from datetime import date
 
+from flask import Blueprint, abort, current_app, g, jsonify, redirect, request, url_for
+
+from acesso import carregar_sessao, instalar_acesso, origem_publica
 from build_vercel import pagina_publica
 from dashboard import criar_app
+from estado_publico import validar_estado
 from financeiro import demonstracao, validar_lancamento, realizar
 from gestao import editar, lixeira
-from estado_publico import validar_estado
+from repositorio_supabase import ConflitoFinanceiro, RepositorioHospedado
+from supabase_api import ErroSupabase, Supabase
 
 
-class DemonstracaoPublica:
-    modo = 'demo'
-
-    @contextmanager
-    def transacao(self, gravar=True):
-        # Estado novo por requisição: não lê JSON local, MySQL ou cookies.
-        yield getattr(g, 'demo_estado', None) or demonstracao()
+demo = Blueprint('demo', __name__)
 
 
-app = criar_app(repositorio=DemonstracaoPublica())
-app.view_functions['index'] = pagina_publica
+@demo.get('/demo')
+def pagina_demo():
+    return pagina_publica()
 
 
-def somente_consulta():
-    if request.method == 'POST' and request.path in {'/api/demo/dashboard', '/api/demo/lancamentos', '/api/demo/acao'}:
-        return None
-    if request.method not in {'GET', 'HEAD', 'OPTIONS'}:
-        return jsonify(erro='Demonstração pública somente para consulta. '
-                       'Execute o Inview localmente para importar faturas e salvar alterações.'), 403
-
-
-# Permite apenas validação/cálculo sem persistência; bloqueia outras mutações.
-app.before_request_funcs.setdefault(None, []).insert(0, somente_consulta)
+@demo.get('/api/demo/dashboard')
+def dashboard_demo():
+    g.demo_estado = demonstracao()
+    return current_app.view_functions['dados']()
 
 
 def estado_do_navegador():
@@ -72,18 +64,18 @@ def estado_do_navegador():
     return body, estado, novos
 
 
-@app.post('/api/demo/dashboard')
+@demo.post('/api/demo/dashboard')
 def dashboard_navegador():
     _, g.demo_estado, _ = estado_do_navegador()
-    resposta = app.view_functions['dados']()
+    resposta = current_app.view_functions['dados']()
     payload = resposta.get_json()
     payload['estado_navegador'] = g.demo_estado
-    resposta.set_data(app.json.dumps(payload))
+    resposta.set_data(current_app.json.dumps(payload))
     resposta.headers['Cache-Control'] = 'no-store'
     return resposta
 
 
-@app.post('/api/demo/lancamentos')
+@demo.post('/api/demo/lancamentos')
 def lancamento_navegador():
     body, estado, novos = estado_do_navegador()
     if len(novos) >= 1000:
@@ -94,7 +86,7 @@ def lancamento_navegador():
     return resposta, 201
 
 
-@app.post('/api/demo/acao')
+@demo.post('/api/demo/acao')
 def acao_navegador():
     body, estado, _ = estado_do_navegador()
     action = body.get('acao')
@@ -126,3 +118,59 @@ def acao_navegador():
     resposta = jsonify(estado=estado, item=item)
     resposta.headers['Cache-Control'] = 'no-store'
     return resposta
+
+
+def criar_app_hospedado(supabase=None, url=None, *, seguro=True):
+    origem = origem_publica(url)
+    app = criar_app(RepositorioHospedado(supabase), publicar_index=False)
+    if origem and seguro:
+        app.config['INVIEW_PUBLIC_URL'] = origem
+    instalar_acesso(app, supabase, origem, seguro)
+    app.register_blueprint(demo)
+
+    @app.get('/app')
+    def area_privada():
+        return app.send_static_file('index.html')
+
+    @app.before_request
+    def proteger_area_privada():
+        if request.endpoint == 'static' and request.view_args['filename'] == 'index.html':
+            abort(404)
+        if request.blueprint in {'demo', 'acesso'} or request.endpoint is None:
+            return None
+        if request.endpoint != 'area_privada' and not request.path.startswith('/api/'):
+            return None
+        if not (supabase and origem and carregar_sessao(supabase)):
+            if request.endpoint == 'area_privada':
+                return redirect(url_for('acesso.entrada'))
+            return jsonify(erro='Entre para acessar seu espaço financeiro.'), 401
+        if request.endpoint in {'analisar', 'confirmar_pdf', 'documento', 'espaco'}:
+            return jsonify(erro='Esta função está disponível na versão local do Inview.'), 404
+
+    @app.after_request
+    def cache_hospedado(resposta):
+        if request.endpoint != 'static':
+            resposta.headers['Cache-Control'] = 'private, no-store'
+            resposta.headers['Referrer-Policy'] = 'no-referrer'
+            resposta.headers['Content-Security-Policy'] = "frame-ancestors 'none'"
+        if request.blueprint == 'acesso' and resposta.mimetype == 'text/html':
+            resposta.headers['Content-Security-Policy'] = (
+                "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+            )
+        return resposta
+
+    @app.errorhandler(ConflitoFinanceiro)
+    def conflito(exc):
+        return jsonify(erro='Seus dados mudaram em outra sessão. Recarregue e confirme a operação novamente.'), 409
+
+    @app.errorhandler(ErroSupabase)
+    def indisponivel(exc):
+        if exc.status == 429:
+            return jsonify(erro='Muitas tentativas. Aguarde alguns minutos e tente novamente.'), 429
+        return jsonify(erro='O serviço está temporariamente indisponível. Tente novamente.'), 503
+
+    return app
+
+
+url = os.getenv('INVIEW_PUBLIC_URL')
+app = criar_app_hospedado(Supabase.do_ambiente(), url, seguro=not (url and url.startswith('http://')))
