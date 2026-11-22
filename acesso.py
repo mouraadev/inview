@@ -1,4 +1,7 @@
+from base64 import urlsafe_b64encode
+from hashlib import sha256
 import re
+from secrets import token_urlsafe
 from urllib.parse import urlsplit
 
 from flask import Blueprint, g, jsonify, redirect, render_template, request, url_for
@@ -9,6 +12,8 @@ from supabase_api import ErroSupabase
 ACESSO = 'inview_acesso'
 RENOVACAO = 'inview_renovacao'
 TROCA = 'inview_troca_senha'
+VERIFICADOR_RECUPERACAO = 'inview_recuperacao'
+CAMINHO_RECUPERACAO = '/api/auth/'
 ROTA_TROCA = '/api/auth/senha'
 AUTH = '/auth/v1'
 MENSAGEM_LINK = 'Este link é inválido ou expirou. Solicite um novo para continuar.'
@@ -118,13 +123,21 @@ def instalar_acesso(app, supabase, origem, seguro):
     @auth.post('/api/auth/recuperar')
     def pedir_recuperacao():
         email = email_do_formulario(corpo())
+        verificador = request.cookies.get(VERIFICADOR_RECUPERACAO, '')
+        if not re.fullmatch(r'[A-Za-z0-9_-]{43}', verificador):
+            verificador = token_urlsafe(32)
+        desafio = urlsafe_b64encode(sha256(verificador.encode()).digest()).rstrip(b'=').decode()
         try:
-            supabase.requisitar('POST', AUTH + '/recover', dados={'email': email},
+            supabase.requisitar('POST', AUTH + '/recover', dados={
+                                    'email': email, 'code_challenge': desafio, 'code_challenge_method': 's256'},
                                 params={'redirect_to': origem + url_for('acesso.nova_senha')})
         except ErroSupabase as exc:
             if exc.status not in {400, 403, 404, 422, 429}:
                 raise
-        return jsonify(mensagem='Se houver uma conta para esse e-mail, você receberá um link para redefinir a senha.')
+        resposta = jsonify(mensagem='Se houver uma conta para esse e-mail, você receberá um link. '
+                                   'Abra-o no mesmo navegador em que pediu a recuperação.')
+        resposta.set_cookie(VERIFICADOR_RECUPERACAO, verificador, max_age=3600, path=CAMINHO_RECUPERACAO, **cookie)
+        return resposta
 
     @auth.post(ROTA_TROCA)
     def senha():
@@ -137,11 +150,22 @@ def instalar_acesso(app, supabase, origem, seguro):
             raise ValueError(MENSAGEM_LINK)
 
         token_hash = dados.get('token_hash')
-        if token_hash:
-            if not isinstance(token_hash, str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,256}', token_hash):
+        codigo = dados.get('codigo')
+        credencial = token_hash or codigo
+        if credencial:
+            if not isinstance(credencial, str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,256}', credencial):
                 raise ValueError(MENSAGEM_LINK)
             try:
-                sessao = supabase.requisitar('POST', AUTH + '/verify', dados={'token_hash': token_hash, 'type': tipo})
+                if token_hash:
+                    sessao = supabase.requisitar('POST', AUTH + '/verify', dados={'token_hash': token_hash, 'type': tipo})
+                else:
+                    if tipo != 'recovery':
+                        raise ValueError(MENSAGEM_LINK)
+                    verificador = request.cookies.get(VERIFICADOR_RECUPERACAO, '')
+                    if not re.fullmatch(r'[A-Za-z0-9_-]{43}', verificador):
+                        raise ValueError('Solicite um novo link e abra-o no mesmo navegador.')
+                    sessao = supabase.requisitar('POST', AUTH + '/token', params={'grant_type': 'pkce'},
+                                                 dados={'auth_code': codigo, 'code_verifier': verificador})
             except ErroSupabase as exc:
                 if exc.status in {400, 401, 403, 404, 422}:
                     return jsonify(erro=MENSAGEM_LINK), 400
@@ -165,7 +189,7 @@ def instalar_acesso(app, supabase, origem, seguro):
             else:
                 resposta = jsonify(erro='Não foi possível salvar a senha agora. Tente novamente.', verificado=True)
                 status = 503
-            if token_hash:
+            if credencial:
                 resposta.set_cookie(TROCA, novo_token, max_age=600, path=ROTA_TROCA, **cookie)
             return resposta, status
 

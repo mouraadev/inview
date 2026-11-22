@@ -10,7 +10,8 @@ const mode = form.dataset.modo;
 const passwordFlow = mode === 'invite' || mode === 'recovery';
 const query = new URLSearchParams(location.search);
 const fragment = new URLSearchParams(location.hash.slice(1));
-let tokenHash = passwordFlow ? fragment.get('token_hash') : null;
+let linkData = passwordFlow && fragment.has('token_hash') ? { token_hash: fragment.get('token_hash') } : {};
+if (mode === 'recovery' && query.has('code')) linkData = { codigo: query.get('code') };
 
 if (location.search || location.hash) history.replaceState(null, '', location.pathname);
 
@@ -22,6 +23,9 @@ function message(box, content, focus = true) {
 
 if (query.get('senha') === 'definida' && mode === 'entrar') {
   message(statusBox, 'Senha salva. Entre para abrir seu espaço.', false);
+}
+if (passwordFlow && (query.has('error_code') || fragment.has('error_code') || fragment.has('access_token'))) {
+  message(errorBox, 'Este link não pode ser usado. Solicite um novo para continuar.', false);
 }
 
 if (toggle) {
@@ -39,11 +43,8 @@ form.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (submit.disabled) return;
 
-  const values = Object.fromEntries(new FormData(form));
-  if (passwordFlow) {
-    values.tipo = mode;
-    if (tokenHash) values.token_hash = tokenHash;
-  }
+  const fields = Object.fromEntries(new FormData(form));
+  const values = passwordFlow ? { ...fields, tipo: mode, ...linkData } : fields;
   message(errorBox, '');
   message(statusBox, mode === 'entrar' ? 'Entrando…' : mode === 'recuperar' ? 'Enviando…' : 'Salvando senha…', false);
   submit.disabled = true;
@@ -55,7 +56,7 @@ form.addEventListener('submit', async (event) => {
       body: JSON.stringify(values),
     });
     const result = await response.json();
-    if (result.verificado) tokenHash = null;
+    if (result.verificado) linkData = {};
     if (!response.ok) throw new Error(result.erro);
     if (result.destino) {
       form.reset();
